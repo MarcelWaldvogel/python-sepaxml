@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 from codecs import open
 from os import path
 
@@ -16,7 +17,7 @@ except:
 
 setup(
     name='sepaxml',
-    version=version,
+    version=version + '.post1',
     description='Python SEPA XML implementations',
     long_description=long_description,
     url='https://github.com/raphaelm/python-sepaxml',

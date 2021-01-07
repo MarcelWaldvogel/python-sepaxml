@@ -28,6 +28,12 @@ class SepaTransfer(SepaPaymentInitn):
             if config_item not in config:
                 validation += config_item.upper() + "_MISSING "
 
+        if 'payment_type' in config:
+            if config['payment_type'] is not None and config['payment_type'] != "CH7":
+                validation += "PAYMENT_TYPE_WRONG "
+        else:
+            config["payment_type"] = None # Simplifies later tests
+
         if not validation:
             return True
         else:
@@ -52,8 +58,14 @@ class SepaTransfer(SepaPaymentInitn):
 
         if 'execution_date' in payment:
             if not isinstance(payment['execution_date'], datetime.date):
-                validation += "EXECUTION_DATE_INVALID_OR_NOT_DATETIME_INSTANCE"
+                validation += "EXECUTION_DATE_INVALID_OR_NOT_DATETIME_INSTANCE "
             payment['execution_date'] = payment['execution_date'].isoformat()
+
+        if self._config['payment_type'] == "CH7":
+            if 'BIC' in payment:
+                validation += "BIC_NOT_ALLOWED_FOR_CH7 "
+            if payment['IBAN'][:2] != 'CH':
+                validation += "ONLY_CH_IBAN_ALLOWED_FOR_CH7 "
 
         if validation == "":
             return True
@@ -80,13 +92,17 @@ class SepaTransfer(SepaPaymentInitn):
             # Start building the non batch payment
             PmtInf_nodes = self._create_PmtInf_node()
             PmtInf_nodes['PmtInfIdNode'].text = make_id(self._config['name'])
-            PmtInf_nodes['PmtMtdNode'].text = "TRF"
+            if self._config['payment_type'] == "CH7":
+                PmtInf_nodes['PmtMtdNode'].text = "CHK"
+                PmtInf_nodes['Cd_LclInstrm_PmtTpInf_CdtTrfTxInf_Node'].text = "CPP"
+            else:
+                PmtInf_nodes['PmtMtdNode'].text = "TRF"
+                PmtInf_nodes['Cd_SvcLvl_Node'].text = "SEPA"
             PmtInf_nodes['BtchBookgNode'].text = "false"
             PmtInf_nodes['NbOfTxsNode'].text = "1"
             PmtInf_nodes['CtrlSumNode'].text = int_to_decimal_str(
                 payment['amount']
             )
-            PmtInf_nodes['Cd_SvcLvl_Node'].text = "SEPA"
             if 'execution_date' in payment:
                 PmtInf_nodes['ReqdExctnDtNode'].text = payment['execution_date']
             else:
@@ -164,8 +180,9 @@ class SepaTransfer(SepaPaymentInitn):
         ED['NbOfTxsNode'] = ET.Element("NbOfTxs")
         ED['CtrlSumNode'] = ET.Element("CtrlSum")
         ED['PmtTpInfNode'] = ET.Element("PmtTpInf")
-        ED['SvcLvlNode'] = ET.Element("SvcLvl")
-        ED['Cd_SvcLvl_Node'] = ET.Element("Cd")
+        if self._config['payment_type'] != "CH7":
+            ED['SvcLvlNode'] = ET.Element("SvcLvl")
+            ED['Cd_SvcLvl_Node'] = ET.Element("Cd")
         ED['ReqdExctnDtNode'] = ET.Element("ReqdExctnDt")
 
         ED['DbtrNode'] = ET.Element("Dbtr")
@@ -186,6 +203,11 @@ class SepaTransfer(SepaPaymentInitn):
         the BIC node will also be created.
         """
         ED = dict()
+        if self._config['payment_type'] == "CH7":
+            ED['PmtTpInfNode'] = ET.Element("PmtTpInf")
+            ED['LclInstrm_PmtTpInf_Node'] = ET.Element("LclInstrm")
+            ED['Cd_LclInstrm_PmtTpInf_Node'] = ET.Element("Cd")
+
         ED['CdtTrfTxInfNode'] = ET.Element("CdtTrfTxInf")
         ED['PmtIdNode'] = ET.Element("PmtId")
         ED['EndToEnd_PmtId_Node'] = ET.Element("EndToEndId")
@@ -215,9 +237,11 @@ class SepaTransfer(SepaPaymentInitn):
         PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['NbOfTxsNode'])
         PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['CtrlSumNode'])
 
-        PmtInf_nodes['SvcLvlNode'].append(PmtInf_nodes['Cd_SvcLvl_Node'])
-        PmtInf_nodes['PmtTpInfNode'].append(PmtInf_nodes['SvcLvlNode'])
-        PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['PmtTpInfNode'])
+        if 'Cd_SvcLvl_Node' in PmtInf_nodes:
+            PmtInf_nodes['SvcLvlNode'].append(PmtInf_nodes['Cd_SvcLvl_Node'])
+            PmtInf_nodes['PmtTpInfNode'].append(PmtInf_nodes['SvcLvlNode'])
+            PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['PmtTpInfNode'])
+
         if 'ReqdExctnDtNode' in PmtInf_nodes:
             PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['ReqdExctnDtNode'])
 
@@ -245,6 +269,11 @@ class SepaTransfer(SepaPaymentInitn):
                 TX_nodes['BIC_CdtrAgt_Node'])
         TX_nodes['CdtrAgtNode'].append(TX_nodes['FinInstnId_CdtrAgt_Node'])
         TX_nodes['CdtTrfTxInfNode'].append(TX_nodes['CdtrAgtNode'])
+
+        if 'Cd_LclInstrm_PmtTpInf_Node' in TX_nodes:
+            TX_nodes['LclInstrm_PmtTpInf_Node'].append(TX_nodes['Cd_LclInstrm_PmtTpInf_Node'])
+            TX_nodes['PmtTpInfNode'].append(TX_nodes['LclInstrm_PmtTpInf_Node'])
+            TX_nodes['CdtTrfTxInfNode'].append(TX_nodes['PmtTpInfNode'])
 
         TX_nodes['CdtrNode'].append(TX_nodes['Nm_Cdtr_Node'])
         TX_nodes['CdtTrfTxInfNode'].append(TX_nodes['CdtrNode'])
@@ -275,6 +304,11 @@ class SepaTransfer(SepaPaymentInitn):
                 TX_nodes['BIC_CdtrAgt_Node'])
         TX_nodes['CdtrAgtNode'].append(TX_nodes['FinInstnId_CdtrAgt_Node'])
         TX_nodes['CdtTrfTxInfNode'].append(TX_nodes['CdtrAgtNode'])
+
+        if 'Cd_LclInstrm_PmtTpInf_Node' in TX_nodes:
+            TX_nodes['LclInstrm_PmtTpInf_Node'].append(TX_nodes['Cd_LclInstrm_PmtTpInf_Node'])
+            TX_nodes['PmtTpInfNode'].append(TX_nodes['LclInstrm_PmtTpInf_Node'])
+            TX_nodes['CdtTrfTxInfNode'].append(TX_nodes['PmtTpInfNode'])
 
         TX_nodes['CdtrNode'].append(TX_nodes['Nm_Cdtr_Node'])
         TX_nodes['CdtTrfTxInfNode'].append(TX_nodes['CdtrNode'])
@@ -317,9 +351,12 @@ class SepaTransfer(SepaPaymentInitn):
         for batch_meta, batch_nodes in self._batches.items():
             PmtInf_nodes = self._create_PmtInf_node()
             PmtInf_nodes['PmtInfIdNode'].text = make_id(self._config['name'])
-            PmtInf_nodes['PmtMtdNode'].text = "TRF"
+            if self._config['payment_type'] == "CH7":
+                PmtInf_nodes['PmtMtdNode'].text = "CHK"
+            else:
+                PmtInf_nodes['PmtMtdNode'].text = "TRF"
+                PmtInf_nodes['Cd_SvcLvl_Node'].text = "SEPA"
             PmtInf_nodes['BtchBookgNode'].text = "true"
-            PmtInf_nodes['Cd_SvcLvl_Node'].text = "SEPA"
 
             if batch_meta:
                 PmtInf_nodes['ReqdExctnDtNode'].text = batch_meta
@@ -342,8 +379,10 @@ class SepaTransfer(SepaPaymentInitn):
             PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['NbOfTxsNode'])
             PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['CtrlSumNode'])
 
-            PmtInf_nodes['SvcLvlNode'].append(PmtInf_nodes['Cd_SvcLvl_Node'])
-            PmtInf_nodes['PmtTpInfNode'].append(PmtInf_nodes['SvcLvlNode'])
+            if 'Cd_SvcLvl_Node' in PmtInf_nodes:
+                PmtInf_nodes['SvcLvlNode'].append(PmtInf_nodes['Cd_SvcLvl_Node'])
+                PmtInf_nodes['PmtTpInfNode'].append(PmtInf_nodes['SvcLvlNode'])
+
             PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['PmtTpInfNode'])
             if 'ReqdExctnDtNode' in PmtInf_nodes:
                 PmtInf_nodes['PmtInfNode'].append(PmtInf_nodes['ReqdExctnDtNode'])

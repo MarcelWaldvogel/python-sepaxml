@@ -21,6 +21,7 @@ Supported standards:
 * SEPA PAIN.008.001.02
 * SEPA PAIN.008.002.02
 * SEPA PAIN.008.003.02
+* Payment Type 7 according to the Swiss Implementation Guidelines (Intra-Switzerland transfers)
 
 Usage
 -----
